@@ -96,13 +96,24 @@ const DEFAULT_TEXT_CONCURRENCY_LIMIT = 10;
 const DEFAULT_TEXT_TEMPERATURE = 0.7;
 
 const textProviderDefaults: Record<TextModelProvider, TextModelConfig> = {
-  official: { api_key: '', base_url: '', model_name: '', multimodal_enabled: false, reasoning_effort: '', context_length_limit: DEFAULT_TEXT_CONTEXT_LENGTH_LIMIT, output_token_limit: 0, concurrency_limit: DEFAULT_TEXT_CONCURRENCY_LIMIT, temperature_enabled: false, temperature: DEFAULT_TEXT_TEMPERATURE, request_mode: 'stream' },
+  official: { api_key: '', base_url: 'https://v3.yibiao.pro/qhp-yibiao/anonymous/yibiao/openai/v1', model_name: 'yibiao-text', multimodal_enabled: true, reasoning_effort: '', context_length_limit: 258000, output_token_limit: 128000, concurrency_limit: 50, temperature_enabled: false, temperature: DEFAULT_TEXT_TEMPERATURE, request_mode: 'stream' },
   jinlong: { api_key: '', base_url: 'https://jlaudeapi.com/v1', model_name: 'gpt-3.5-turbo', multimodal_enabled: false, reasoning_effort: '', context_length_limit: DEFAULT_TEXT_CONTEXT_LENGTH_LIMIT, output_token_limit: 0, concurrency_limit: DEFAULT_TEXT_CONCURRENCY_LIMIT, temperature_enabled: false, temperature: DEFAULT_TEXT_TEMPERATURE, request_mode: 'stream' },
   volcengine: { api_key: '', base_url: 'https://ark.cn-beijing.volces.com/api/v3', model_name: '', multimodal_enabled: false, reasoning_effort: '', context_length_limit: DEFAULT_TEXT_CONTEXT_LENGTH_LIMIT, output_token_limit: 0, concurrency_limit: DEFAULT_TEXT_CONCURRENCY_LIMIT, temperature_enabled: false, temperature: DEFAULT_TEXT_TEMPERATURE, request_mode: 'stream' },
   deepseek: { api_key: '', base_url: 'https://api.deepseek.com', model_name: '', multimodal_enabled: false, reasoning_effort: '', context_length_limit: DEFAULT_TEXT_CONTEXT_LENGTH_LIMIT, output_token_limit: 0, concurrency_limit: DEFAULT_TEXT_CONCURRENCY_LIMIT, temperature_enabled: false, temperature: DEFAULT_TEXT_TEMPERATURE, request_mode: 'stream' },
   agnes: { api_key: '', base_url: 'https://apihub.agnes-ai.com/v1', model_name: '', multimodal_enabled: false, reasoning_effort: '', context_length_limit: DEFAULT_TEXT_CONTEXT_LENGTH_LIMIT, output_token_limit: 0, concurrency_limit: DEFAULT_TEXT_CONCURRENCY_LIMIT, temperature_enabled: false, temperature: DEFAULT_TEXT_TEMPERATURE, request_mode: 'stream' },
   custom: { api_key: '', base_url: '', model_name: '', multimodal_enabled: false, reasoning_effort: '', context_length_limit: DEFAULT_TEXT_CONTEXT_LENGTH_LIMIT, output_token_limit: 0, concurrency_limit: DEFAULT_TEXT_CONCURRENCY_LIMIT, temperature_enabled: false, temperature: DEFAULT_TEXT_TEMPERATURE, request_mode: 'stream' },
 };
+
+// 设置页不编辑官方 Key；保存时省略它，由主进程合并磁盘中的最新值。
+async function persistSettingsConfig(config: ClientConfig) {
+  const { api_key, ...fields } = config;
+  const { api_key: officialApiKey, ...official } = config.text_model_profiles.official;
+  return window.yibiao.config.save({
+    ...fields,
+    ...(config.text_model_provider === 'official' ? {} : { api_key }),
+    text_model_profiles: { ...config.text_model_profiles, official },
+  });
+}
 
 const textProviderApiKeyUrls: Partial<Record<TextModelProvider, string>> = {
   jinlong: 'https://s.markup.com.cn/jl',
@@ -173,7 +184,7 @@ function normalizeTextModelProfile(provider: TextModelProvider, profile?: Partia
     multimodal_enabled: profile?.multimodal_enabled ?? defaults.multimodal_enabled,
     reasoning_effort: profile?.reasoning_effort?.trim() ?? defaults.reasoning_effort,
     context_length_limit: normalizeTextContextLengthLimit(profile?.context_length_limit ?? defaults.context_length_limit),
-    output_token_limit: profile?.output_token_limit ?? 0,
+    output_token_limit: profile?.output_token_limit ?? defaults.output_token_limit,
     concurrency_limit: normalizeTextConcurrencyLimit(profile?.concurrency_limit ?? defaults.concurrency_limit),
     temperature_enabled: profile?.temperature_enabled ?? defaults.temperature_enabled,
     temperature: normalizeTextTemperature(profile?.temperature ?? defaults.temperature),
@@ -694,6 +705,43 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
     return () => { unsubs.forEach((unsub) => unsub()); };
   }, []);
 
+  // 复用账户通知同步自动保存的 Key，只更新该字段，不覆盖页面其他草稿。
+  const configLoaded = savedConfig !== null;
+  useEffect(() => {
+    if (!configLoaded) return;
+    let disposed = false;
+    let revision = 0;
+    const syncOfficialKey = async () => {
+      const currentRevision = ++revision;
+      try {
+        const config = await window.yibiao.config.load();
+        if (disposed || currentRevision !== revision) return;
+        const apiKey = config.text_model_profiles.official.api_key;
+        setState((prev) => ({
+          ...prev,
+          textModel: prev.textModel.provider === 'official' ? { ...prev.textModel, api_key: apiKey } : prev.textModel,
+          textModelProfiles: {
+            ...prev.textModelProfiles,
+            official: { ...prev.textModelProfiles.official, api_key: apiKey },
+          },
+        }));
+        setSavedConfig((prev) => prev ? {
+          ...prev,
+          ...(prev.text_model_provider === 'official' ? { api_key: apiKey } : {}),
+          text_model_profiles: {
+            ...prev.text_model_profiles,
+            official: { ...prev.text_model_profiles.official, api_key: apiKey },
+          },
+        } : prev);
+      } catch (error) {
+        if (!disposed && currentRevision === revision) showToast(error instanceof Error ? error.message : '同步官方 API Key 失败', 'error');
+      }
+    };
+    const unsubscribe = window.yibiao.officialAccount.onStateChanged(() => { void syncOfficialKey(); });
+    void syncOfficialKey();
+    return () => { disposed = true; unsubscribe(); };
+  }, [configLoaded]);
+
   // 弹窗中的自动确认开关实时保存后，同步刷新设置页草稿和已保存基准。
   useEffect(() => {
     setAgentAutoAnswerDraft(agentAutoAnswerEnabled);
@@ -889,7 +937,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
 
   const saveClientConfig = async (config: ClientConfig) => {
     try {
-      const result = await window.yibiao?.config.save(config);
+      const result = await persistSettingsConfig(config);
       showToast(result?.success ? '配置已保存' : result?.message || '配置保存失败', result?.success ? 'success' : 'error');
       if (result?.success) {
         setSavedConfig(config);
@@ -971,6 +1019,15 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
         provider,
         ...normalizeTextModelProfile(provider, prev.textModelProfiles[provider]),
       },
+    }));
+  };
+
+  // 切换官方模型类型时只更新模型名称，保留 Key 和其他配置。
+  const updateOfficialApiModelType = (modelType: ClientConfig['official_api_model_type']) => {
+    setState((prev) => ({
+      ...prev,
+      officialApiModelType: modelType,
+      textModel: { ...prev.textModel, model_name: modelType === 'high-quality' ? 'yibiao-reasoning' : 'yibiao-text' },
     }));
   };
 
@@ -1065,7 +1122,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
     try {
       setTestingTextModel(true);
       const config = createClientConfig();
-      const result = await window.yibiao?.config.save(config);
+      const result = await persistSettingsConfig(config);
       if (result?.success) {
         setSavedConfig(config);
       }
@@ -1184,7 +1241,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
           [testedImageModel.provider]: testedImageModel,
         },
       };
-      await window.yibiao?.config.save(testedConfig);
+      await persistSettingsConfig(testedConfig);
       setState((prev) => ({
         ...prev,
         imageModel: testedConfig.image_model,
@@ -1219,7 +1276,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
           [failedImageModel.provider]: failedImageModel,
         },
       };
-      await window.yibiao?.config.save(failedConfig).catch(() => undefined);
+      await persistSettingsConfig(failedConfig).catch(() => undefined);
       setState((prev) => ({
         ...prev,
         imageModel: failedConfig.image_model,
@@ -1789,7 +1846,7 @@ function SettingsPage({ onDeveloperModeChange }: SettingsPageProps) {
                   <div className="settings-row-copy"><strong>模型类型</strong></div>
                   <select
                     value={state.officialApiModelType}
-                    onChange={(event) => setState((prev) => ({ ...prev, officialApiModelType: event.target.value as ClientConfig['official_api_model_type'] }))}
+                    onChange={(event) => updateOfficialApiModelType(event.target.value as ClientConfig['official_api_model_type'])}
                   >
                     <option value="cost-effective">性价比优先</option>
                     <option value="high-quality">高质量优先</option>
