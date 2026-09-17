@@ -824,6 +824,18 @@ fieldset.settings-list {
   font-weight: 500;
 }
 
+.inline-action.official-api-balance-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  min-height: 28px;
+  padding: 0;
+}
+
 .official-api-details {
   min-width: 0;
   margin: 12px 24px 24px;

@@ -92,6 +92,7 @@ const bridge = {
     getInvoiceInfo: () => ipcRenderer.invoke('official-account:get-invoice-info'),
     saveInvoiceInfo: (input) => ipcRenderer.invoke('official-account:save-invoice-info', input),
     getState: () => invokeOfficialAccount('get-state'),
+    refreshBalance: () => invokeOfficialAccount('refresh-balance'),
     getRechargeOptions: () => invokeOfficialAccount('get-recharge-options'),
     createRechargeOrder: (input) => invokeOfficialAccount('create-recharge-order', input),
     getRechargeOrders: () => invokeOfficialAccount('get-recharge-orders'),

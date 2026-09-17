@@ -597,6 +597,7 @@ export interface YibiaoBridge {
     getInvoiceInfo: () => Promise<OfficialInvoiceInfo>;
     saveInvoiceInfo: (input: OfficialInvoiceInfo) => Promise<void>;
     getState: () => Promise<OfficialAccountState>;
+    refreshBalance: () => Promise<OfficialAccountState>;
     getRechargeOptions: () => Promise<OfficialRechargeOption[]>;
     createRechargeOrder: (input: { optionId: string }) => Promise<OfficialRechargeOrder>;
     getRechargeOrders: () => Promise<OfficialRechargeOrder[]>;

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import type { OfficialEmailPurpose } from '../../../shared/types/officialAccount';
 import { AppDialog, InlineSpinner, InputWithAction, useToast } from '../../../shared/ui';
@@ -16,6 +16,8 @@ export default function OfficialAccountControls({ onViewOrders }: { onViewOrders
   const [resendAt, setResendAt] = useState(0);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [rechargeOpen, setRechargeOpen] = useState(false);
+  const [refreshingBalance, setRefreshingBalance] = useState(false);
+  const balanceRefreshPending = useRef(false);
   const rechargeAfterLogin = useRef(false);
   const rechargeButton = useRef<HTMLButtonElement>(null);
   const emailInput = useRef<HTMLInputElement>(null);
@@ -24,6 +26,26 @@ export default function OfficialAccountControls({ onViewOrders }: { onViewOrders
   const { showToast } = useToast();
   const binding = purpose === 'BIND';
   const title = binding ? '绑定邮箱' : '邮箱登陆';
+
+  // 自动与手动刷新共用加载状态，余额由现有账户订阅更新。
+  const refreshBalance = useCallback(async () => {
+    if (balanceRefreshPending.current) return;
+    balanceRefreshPending.current = true;
+    setRefreshingBalance(true);
+    try {
+      await window.yibiao.officialAccount.refreshBalance();
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '刷新 e 点失败，请重试', 'error');
+    } finally {
+      balanceRefreshPending.current = false;
+      setRefreshingBalance(false);
+    }
+  }, [showToast]);
+
+  // 进入文本模型页或切换到官方服务都会挂载此控件，等待会话就绪后刷新一次。
+  useEffect(() => {
+    if (account.status === 'signed-in') void refreshBalance();
+  }, [account.status, refreshBalance]);
 
   useEffect(() => {
     if (account.status === 'signed-out') setRechargeOpen(false);
@@ -134,6 +156,22 @@ export default function OfficialAccountControls({ onViewOrders }: { onViewOrders
           <span className="official-api-balance">
             <span className="official-api-balance-value">{account.availablePoint ?? '—'}</span>
             <small>e点</small>
+            <button
+              type="button"
+              className="inline-action official-api-balance-refresh"
+              title={account.status === 'signed-out' ? '请先登录官方账户' : '刷新 e 点'}
+              aria-label="刷新 e 点"
+              aria-busy={refreshingBalance}
+              disabled={account.status !== 'signed-in' || refreshingBalance}
+              onClick={() => { void refreshBalance(); }}
+            >
+              {refreshingBalance ? <InlineSpinner /> : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M20 7v5h-5M4 17v-5h5" />
+                  <path d="M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 17.9 17" />
+                </svg>
+              )}
+            </button>
           </span>
           <div className="official-api-balance-actions">
             <button type="button" className="inline-action" ref={rechargeButton} disabled={account.status === 'loading'} onClick={openRecharge}>充值</button>

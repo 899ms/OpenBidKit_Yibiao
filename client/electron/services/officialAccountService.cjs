@@ -46,6 +46,7 @@ function createOfficialAccountService({ app, configStore, powerMonitor, fetchImp
   let balanceRetryAt = 0;
   let orderRetryAt = 0;
   let creatingOrder = null;
+  let refreshingBalance = null;
   let qrCodes = [];
   let qrCleanupTimer = null;
 
@@ -341,6 +342,16 @@ function createOfficialAccountService({ app, configStore, powerMonitor, fetchImp
     });
   }
 
+  // 页面和手动刷新共用同一请求，沿用当前会话查询并广播最新余额。
+  function refreshBalance() {
+    if (refreshingBalance) return refreshingBalance;
+    refreshingBalance = enqueue(async () => {
+      acceptAccount(await request('/account', { method: 'GET', authenticated: true }));
+      return getState();
+    }).finally(() => { refreshingBalance = null; });
+    return refreshingBalance;
+  }
+
   // 兑换成功后查询当前余额；幂等响应中的余额是首次入账快照。
   function redeemCode(input) {
     return enqueue(async () => {
@@ -549,7 +560,7 @@ function createOfficialAccountService({ app, configStore, powerMonitor, fetchImp
     return tail;
   }
 
-  return { start, getState, onChanged, sendEmailCode, loginWithEmail, bindEmail, getRechargeOptions,
+  return { start, getState, onChanged, sendEmailCode, loginWithEmail, bindEmail, refreshBalance, getRechargeOptions,
     redeemCode, createInvoiceApplication, createRechargeOrder, getRechargeOrders, getRechargeOrder, closeRechargeOrder, onRechargeOrderChanged, close };
 }
 
