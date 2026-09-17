@@ -12,6 +12,7 @@ function registerOfficialAccountIpc({ officialAccountService }) {
   ipcMain.handle('official-account:get-recharge-options', () => officialAccountService.getRechargeOptions());
   ipcMain.handle('official-account:create-recharge-order', (_event, input) => officialAccountService.createRechargeOrder(input));
   ipcMain.handle('official-account:get-recharge-orders', () => officialAccountService.getRechargeOrders());
+  ipcMain.handle('official-account:get-transactions', (_event, page) => officialAccountService.getTransactions(page));
   ipcMain.handle('official-account:get-recharge-order', (_event, id) => officialAccountService.getRechargeOrder(id));
   ipcMain.handle('official-account:close-recharge-order', (_event, id) => officialAccountService.closeRechargeOrder(id));
   officialAccountService.onRechargeOrderChanged((order) => {

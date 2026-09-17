@@ -505,6 +505,23 @@ function createOfficialAccountService({ app, configStore, powerMonitor, fetchImp
     });
   }
 
+  // 两种登录身份共用消费接口，凭据及查询范围由现有账户鉴权处理。
+  function getTransactions(page) {
+    return enqueue(async () => {
+      const data = await request(`/account/consume-records?current=${page}&size=5`, {
+        method: 'GET', authenticated: true,
+      });
+      const current = Number(data?.current);
+      const size = Number(data?.size);
+      const total = Number(data?.total);
+      if (!Array.isArray(data?.records) || !Number.isSafeInteger(current) || current < 1
+        || !Number.isSafeInteger(size) || size < 1 || !Number.isSafeInteger(total) || total < 0) {
+        throw new Error('官方流水接口返回的分页数据不完整，请重试');
+      }
+      return { records: data.records, current, size, total };
+    });
+  }
+
   // 先查询服务端状态，仅为仍待支付的订单附上当前账户的有效本地缓存。
   function getRechargeOrder(id) {
     return enqueue(async () => {
@@ -561,7 +578,7 @@ function createOfficialAccountService({ app, configStore, powerMonitor, fetchImp
   }
 
   return { start, getState, onChanged, sendEmailCode, loginWithEmail, bindEmail, refreshBalance, getRechargeOptions,
-    redeemCode, createInvoiceApplication, createRechargeOrder, getRechargeOrders, getRechargeOrder, closeRechargeOrder, onRechargeOrderChanged, close };
+    redeemCode, createInvoiceApplication, createRechargeOrder, getRechargeOrders, getTransactions, getRechargeOrder, closeRechargeOrder, onRechargeOrderChanged, close };
 }
 
 module.exports = { createOfficialAccountService };

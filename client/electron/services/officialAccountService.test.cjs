@@ -59,6 +59,71 @@ function setup(t, handler, keyHandler = () => ({ code: 0, data: [{ name: '易标
   return { create, requests, powerMonitor, configStore, sessionFile: path.join(directory, 'official_api_session.json'), qrCacheFile: path.join(directory, 'official_recharge_qr_cache.json') };
 }
 
+test('匿名、绑定和邮箱登录统一查询消费接口，使用各自凭据并保留点数精度', async (t) => {
+  const anonymousRecord = { recordId: '2087000000000000099', consumePoint: '9007199254740993', availableAfter: '100', consumeType: 'AI_SETTLE' };
+  const emailRecord = { ...anonymousRecord, recordId: '2087000000000000100', consumePoint: '20' };
+  const login = emailLogin('transactions');
+  const relogin = emailLogin('transactions-relogin');
+  const env = setup(t, ({ endpoint, url, headers }) => {
+    if (endpoint === '/account') return { code: 0, data: account };
+    if (endpoint === '/email/bind' || endpoint === '/email/login') return {
+      code: 0, data: { account: { ...account, email: 'user@example.com' }, login: endpoint === '/email/bind' ? login : relogin },
+    };
+    if (endpoint === '/recharge/orders') return { code: 0, data: [] };
+    if (endpoint === '/account/consume-records') {
+      const query = new URL(url).searchParams;
+      return { code: 0, data: { current: query.get('current'), size: query.get('size'), total: '12', records: [headers.Authorization ? emailRecord : anonymousRecord] } };
+    }
+    return { code: 0, data: token('transactions-anonymous') };
+  });
+  const service = env.create();
+  await service.start();
+  assert.deepEqual(await service.getTransactions(2), { current: 2, size: 5, total: 12, records: [anonymousRecord] });
+  const anonymousRequest = env.requests.findLast(item => item.endpoint === '/account/consume-records');
+  assert.equal(anonymousRequest.url, 'https://v3.yibiao.pro/qhp-yibiao/anonymous/yibiao/open/account/consume-records?current=2&size=5');
+  assert.equal(anonymousRequest.method, 'GET');
+  assert.equal(anonymousRequest.headers['X-Yibiao-Open-Token'], 'transactions-anonymous');
+  assert.equal(anonymousRequest.headers.Authorization, undefined);
+  await service.bindEmail({ email: 'user@example.com', code: '123456' });
+  assert.deepEqual(await service.getTransactions(1), { current: 1, size: 5, total: 12, records: [emailRecord] });
+  const emailRequest = env.requests.findLast(item => item.endpoint === '/account/consume-records');
+  assert.equal(emailRequest.url, 'https://v3.yibiao.pro/qhp-yibiao/anonymous/yibiao/open/account/consume-records?current=1&size=5');
+  assert.equal(emailRequest.method, 'GET');
+  assert.equal(emailRequest.headers.Authorization, `Bearer ${login.token}`);
+  assert.equal(emailRequest.headers['X-Yibiao-Open-Token'], undefined);
+  await service.loginWithEmail({ email: 'user@example.com', code: '123456' });
+  assert.deepEqual(await service.getTransactions(2), { current: 2, size: 5, total: 12, records: [emailRecord] });
+  const reloginRequest = env.requests.findLast(item => item.endpoint === '/account/consume-records');
+  assert.equal(reloginRequest.headers.Authorization, `Bearer ${relogin.token}`);
+  assert.equal(reloginRequest.headers['X-Yibiao-Open-Token'], undefined);
+  assert.equal(env.requests.some(item => item.endpoint === '/yibiao/point/consume-orders'), false);
+});
+
+test('流水查询区分空列表、接口失败和错误分页，会话失效后不请求', async (t) => {
+  let response = { code: 0, data: { current: '1', size: '5', total: '0', records: [] } };
+  const env = setup(t, ({ endpoint }) => {
+    if (endpoint === '/account') return { code: 0, data: account };
+    if (endpoint === '/recharge/orders') return { code: 0, data: [] };
+    if (endpoint === '/account/consume-records') return response;
+    return { code: 0, data: token('anonymous') };
+  });
+  const service = env.create();
+  await assert.rejects(service.getTransactions(1), /请先登陆/);
+  assert.equal(env.requests.length, 0);
+  await service.start();
+  assert.deepEqual((await service.getTransactions(1)).records, []);
+  response = { code: -1, msg: '消费流水查询失败' };
+  await assert.rejects(service.getTransactions(1), /消费流水查询失败/);
+  assert.equal(service.getState().status, 'signed-in');
+  response = { code: 0, data: { current: '1', size: '5', total: '0' } };
+  await assert.rejects(service.getTransactions(1), /分页数据不完整/);
+  response = { httpStatus: 401, code: -1, msg: '登录失效' };
+  await assert.rejects(service.getTransactions(1), /登录失效/);
+  const count = env.requests.length;
+  await assert.rejects(service.getTransactions(1), /请先登陆/);
+  assert.equal(env.requests.length, count);
+});
+
 test('刷新余额合并重叠请求，广播并保存最新 e 点，使用当前身份且不访问 Key', async (t) => {
   let finishRefresh;
   let delay = false;
@@ -580,6 +645,9 @@ test('preload 转发订单字段并去除内部 IPC 错误前缀', async () => {
   await bridge.officialAccount.refreshBalance();
   assert.equal(calls.at(-1).channel, 'official-account:refresh-balance');
   assert.deepEqual(calls.at(-1).args, []);
+  await bridge.officialAccount.getTransactions(2);
+  assert.equal(calls.at(-1).channel, 'official-account:get-transactions');
+  assert.deepEqual(calls.at(-1).args, [2]);
   fail = true;
   await assert.rejects(bridge.officialAccount.getRechargeOrders(), error => error.message === '商品暂不可用');
 });

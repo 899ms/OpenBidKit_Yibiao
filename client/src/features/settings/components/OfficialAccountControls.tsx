@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
+import { ReloadIcon } from '@radix-ui/react-icons';
 import type { OfficialEmailPurpose } from '../../../shared/types/officialAccount';
 import { AppDialog, InlineSpinner, InputWithAction, useToast } from '../../../shared/ui';
 import OfficialRedeemAction from './OfficialRedeemAction';
@@ -156,24 +157,19 @@ export default function OfficialAccountControls({ onViewOrders }: { onViewOrders
           <span className="official-api-balance">
             <span className="official-api-balance-value">{account.availablePoint ?? '—'}</span>
             <small>e点</small>
+          </span>
+          <div className="official-api-balance-actions">
             <button
               type="button"
-              className="inline-action official-api-balance-refresh"
+              className="inline-action"
               title={account.status === 'signed-out' ? '请先登录官方账户' : '刷新 e 点'}
               aria-label="刷新 e 点"
               aria-busy={refreshingBalance}
               disabled={account.status !== 'signed-in' || refreshingBalance}
               onClick={() => { void refreshBalance(); }}
             >
-              {refreshingBalance ? <InlineSpinner /> : (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M20 7v5h-5M4 17v-5h5" />
-                  <path d="M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 17.9 17" />
-                </svg>
-              )}
+              {refreshingBalance ? <InlineSpinner /> : <ReloadIcon aria-hidden="true" />}
             </button>
-          </span>
-          <div className="official-api-balance-actions">
             <button type="button" className="inline-action" ref={rechargeButton} disabled={account.status === 'loading'} onClick={openRecharge}>充值</button>
             <OfficialRedeemAction account={account} />
           </div>

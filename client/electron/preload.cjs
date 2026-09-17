@@ -96,6 +96,7 @@ const bridge = {
     getRechargeOptions: () => invokeOfficialAccount('get-recharge-options'),
     createRechargeOrder: (input) => invokeOfficialAccount('create-recharge-order', input),
     getRechargeOrders: () => invokeOfficialAccount('get-recharge-orders'),
+    getTransactions: (page) => invokeOfficialAccount('get-transactions', page),
     getRechargeOrder: (id) => invokeOfficialAccount('get-recharge-order', id),
     closeRechargeOrder: (id) => invokeOfficialAccount('close-recharge-order', id),
     onRechargeOrderChanged: (callback) => {
